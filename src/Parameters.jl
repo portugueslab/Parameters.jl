@@ -389,6 +389,7 @@ function with_kw(typedef, mod::Module, withshow=true)
     kws = OrderedDict{Any, Any}()
     # assertions in the body
     asserts = Any[]
+    argbounds = OrderedDict{Symbol,Any}()
     for (i,l) in enumerate(lns) # loop over body of typedef
         if i==1 && has_deftyp
             # ignore @deftype line
@@ -418,7 +419,19 @@ function with_kw(typedef, mod::Module, withshow=true)
                     fld = :($fld::$deftyp)
                 end
                 # add field doc-strings
-                docstring = string("Default: ", l.args[2])
+                val = l.args[2]
+
+                # if the limits are set with the lower < default < upper syntax, store them
+                if val isa Expr && val.head==:comparison
+                    if val.args[2] != :< || val.args[4] != :<
+                        error("Only the lower < defualt < upper for parameter ranges is supported")
+                    end
+                    argbounds[decolon2(fld)] = (val.args[1], val.args[5])
+                    defval = val.args[3]
+                else
+                    defval = val
+                end
+                docstring = string("Default: ", defval)
                 if i > 1 && lns[i-1] isa String
                     # if the last line was a docstring, append the default
                     fielddefs.args[end] *= " " * docstring
@@ -427,7 +440,7 @@ function with_kw(typedef, mod::Module, withshow=true)
                     push!(fielddefs.args, docstring)
                 end
                 push!(fielddefs.args, fld)
-                kws[decolon2(fld)] = l.args[2]
+                kws[decolon2(fld)] =  defval
                 # unwrap-macro
                 push!(unpack_vars, decolon2(fld))
             end
@@ -534,6 +547,19 @@ function with_kw(typedef, mod::Module, withshow=true)
         $tn(pp::$tn, di::Vararg{Tuple{Symbol,Any}} ) = $Parameters.reconstruct(pp, di)
     end
 
+    if length(argbounds) > 0
+        limit_fns = quote
+            function lower(::Type{$tn})
+                return NamedTuple{$(tuple(keys(argbounds)...))}($(first.(values(argbounds))))
+            end
+            function upper(::Type{$tn})
+                return NamedTuple{$(tuple(keys(argbounds)...))}($(last.(values(argbounds))))
+            end
+        end
+    else
+        limit_fns = :nothing
+    end
+
     # (un)pack macro from https://groups.google.com/d/msg/julia-users/IQS2mT1ITwU/hDtlV7K1elsJ
     unpack_name = Symbol("unpack_"*string(tn))
     pack!_name = Symbol("pack_"*string(tn)*"!")
@@ -579,6 +605,7 @@ function with_kw(typedef, mod::Module, withshow=true)
         end
         $pack_macros
         $tn
+        $limit_fns
     end
 end
 
