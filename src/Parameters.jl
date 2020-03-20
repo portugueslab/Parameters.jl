@@ -387,6 +387,7 @@ function with_kw(typedef, mod::Module, withshow=true)
     fielddefs = quote end # holds r::R etc
     fielddefs.args = Any[] # in julia 0.5 this is [:( # /home/mauro/.julia/v0.5/Parameters/src/Parameters.jl, line 228:)]
     kws = OrderedDict{Any, Any}()
+    nobounds = OrderedDict{Symbol, Any}()
     # assertions in the body
     asserts = Any[]
     argbounds = OrderedDict{Symbol,Any}()
@@ -426,10 +427,11 @@ function with_kw(typedef, mod::Module, withshow=true)
                     if val.args[2] != :< || val.args[4] != :<
                         error("Only the lower < defualt < upper for parameter ranges is supported")
                     end
-                    argbounds[decolon2(fld)] = (val.args[1], val.args[5])
                     defval = val.args[3]
+                    argbounds[decolon2(fld)] = (val.args[1], defval, val.args[5])
                 else
                     defval = val
+                    nobounds[decolon2(fld)] = defval
                 end
                 docstring = string("Default: ", defval)
                 if i > 1 && lns[i-1] isa String
@@ -480,6 +482,13 @@ function with_kw(typedef, mod::Module, withshow=true)
     else
         innerc = :($tn($kwargs) = $tn($(args...)) )
     end
+    
+    # Collect the not-optimized ones
+    noboundskw = []
+    for (k, w) in nobounds
+        push!(noboundskw, Expr(:kw, k, w))
+    end
+
     push!(typ.args[3].args, innerc)
 
     # Inner positional constructor: only make it if no inner
@@ -532,6 +541,7 @@ function with_kw(typedef, mod::Module, withshow=true)
     else
         outer_kw = :($tn($kwargs) = $tn($(args...)) )
     end
+    
     # NOTE: The reason to have both outer and inner keyword
     # constructors are to allow both calls:
     #   `MT4(r=4, a=5.0)` (outer kwarg-constructor) and
@@ -550,10 +560,19 @@ function with_kw(typedef, mod::Module, withshow=true)
     if length(argbounds) > 0
         limit_fns = quote
             function lower(::Type{$tn})
-                return NamedTuple{$(tuple(keys(argbounds)...))}($(first.(values(argbounds))))
+                return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((first.(values(argbounds)))...)))
             end
             function upper(::Type{$tn})
-                return NamedTuple{$(tuple(keys(argbounds)...))}($(last.(values(argbounds))))
+                return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((last.(values(argbounds)))...)))
+            end
+            function default(::Type{$tn})
+                return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((getindex.(values(argbounds), 2))...)))
+            end
+            function $tn(a::AbstractArray; $(noboundskw...))
+                return $tn(;
+                        $((:($k=a[$i]) for (k, i) in zip(keys(argbounds), 1:length(argbounds)))...),
+                        $(((:($k = $k) for (k, v) in nobounds))...)
+                )
             end
         end
     else
