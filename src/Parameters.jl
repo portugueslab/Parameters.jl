@@ -46,6 +46,18 @@ import OrderedCollections: OrderedDict
 using UnPack: @unpack, @pack!
 
 export @with_kw, @with_kw_noshow, type2dict, reconstruct, @unpack, @pack!, @pack
+export default, lower, upper
+
+# defining functions for optimization
+function default(::Any)
+    return NamedTuple();
+end
+function lower(::Any)
+    return NamedTuple();
+end
+function upper(::Any)
+    return NamedTuple();
+end
 
 ## Parser helpers
 #################
