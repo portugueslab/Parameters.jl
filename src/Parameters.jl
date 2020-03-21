@@ -443,7 +443,10 @@ function with_kw(typedef, mod::Module, withshow=true)
                     argbounds[decolon2(fld)] = (val.args[1], defval, val.args[5])
                 else
                     defval = val
-                    nobounds[decolon2(fld)] = defval
+                    if !isa(defval, Expr) # TODO check that those extra keyword arguments are not
+                        # dependent on others, expressions are valid but not supported
+                        nobounds[decolon2(fld)] = defval
+                    end
                 end
                 docstring = string("Default: ", defval)
                 if i > 1 && lns[i-1] isa String
@@ -571,13 +574,13 @@ function with_kw(typedef, mod::Module, withshow=true)
 
     if length(argbounds) > 0
         limit_fns = quote
-            function lower(::Type{$tn})
+            function Parameters.lower(::Type{$tn})
                 return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((first.(values(argbounds)))...)))
             end
-            function upper(::Type{$tn})
+            function Parameters.upper(::Type{$tn})
                 return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((last.(values(argbounds)))...)))
             end
-            function default(::Type{$tn})
+            function Parameters.default(::Type{$tn})
                 return NamedTuple{$(tuple(keys(argbounds)...))}(tuple($((getindex.(values(argbounds), 2))...)))
             end
             function $tn(a::AbstractArray; $(noboundskw...))
